@@ -1,12 +1,34 @@
 const express = require("express");
 const { pool } = require("./dbConfig");
 const bcrypt = require("bcrypt");
+const passport = require("passport");
+const flash = require("express-flash");
+const session = require("express-session");
+require("dotenv").config();
 const app = express();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
+
+const initializePassport = require("./passportConfig");
+
+initializePassport(passport);
 
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: false }));
+
+app.use(
+  session({
+    secret: "secret",
+
+    resave: false,
+
+    saveUninitialized: false,
+  })
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(flash());
 
 app.get("/", (req, res) => {
   res.render("index");
@@ -21,13 +43,17 @@ app.get("/users/login", (req, res) => {
 });
 
 app.get("/users/dashboard", (req, res) => {
-  res.render("dashboard", { user: "John" });
+  res.render("dashboard", { user: req.user.name });
+});
+
+app.get("/users/logout", (req, res) => {
+  req.logout();
+  res.flash("success_msg", { message: "You have logged out successfully" });
+  res.redirect("/users/login");
 });
 
 app.post("/users/register", async (req, res) => {
   let { name, email, password, password2 } = req.body;
-
-  let errors = [];
 
   console.log({
     name,
@@ -35,6 +61,8 @@ app.post("/users/register", async (req, res) => {
     password,
     password2,
   });
+
+  let errors = [];
 
   if (!name || !email || !password || !password2) {
     errors.push({ message: "Please enter all fields" });
@@ -49,30 +77,29 @@ app.post("/users/register", async (req, res) => {
   }
 
   if (errors.length > 0) {
-    res.render("register", { errors, name, email, password, password2 });
+    res.render("register", { errors });
   } else {
-    hashedPassword = await bcrypt.hash(password, 10);
+    let hashedPassword = await bcrypt.hash(password, 10);
     console.log(hashedPassword);
-    // Validation passed
+
     pool.query(
       `SELECT * FROM users
-          WHERE email = $1`,
+      WHERE EMAIL = $1`,
       [email],
       (err, results) => {
         if (err) {
-          console.log(err);
+          throw err;
         }
         console.log(results.rows);
 
         if (results.rows.length > 0) {
-          return res.render("register", {
-            message: "Email already registered",
-          });
+          errors.push({ message: "Email already registered" });
+          res.render("register", { errors });
         } else {
           pool.query(
             `INSERT INTO users (name, email, password)
-                      VALUES ($1, $2, $3)
-                      RETURNING id, password`,
+            VALUES ($1, $2, $3)
+            RETURNING id, password`,
             [name, email, hashedPassword],
             (err, results) => {
               if (err) {
@@ -88,6 +115,15 @@ app.post("/users/register", async (req, res) => {
     );
   }
 });
+
+app.post(
+  "/users/login",
+  passport.authenticate("local", {
+    successRedirect: "/users/dashboard",
+    failureRedirect: "/users/login",
+    failureFlash: true,
+  })
+);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
