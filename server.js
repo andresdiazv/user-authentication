@@ -6,6 +6,9 @@ const flash = require("express-flash");
 const session = require("express-session");
 require("dotenv").config();
 const app = express();
+const path = require("path");
+
+
 
 const PORT = process.env.PORT || 4000;
 
@@ -15,6 +18,7 @@ initializePassport(passport);
 
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: false }));
+app.use(express.static(path.join(__dirname, "public")));
 
 app.use(
   session({
@@ -34,22 +38,23 @@ app.get("/", (req, res) => {
   res.render("index");
 });
 
-app.get("/users/register", (req, res) => {
+app.get("/users/register", checkAuthenticated, (req, res) => {
   res.render("register");
 });
 
-app.get("/users/login", (req, res) => {
+app.get("/users/login", checkAuthenticated, (req, res) => {
   res.render("login");
 });
 
-app.get("/users/dashboard", (req, res) => {
+app.get("/users/dashboard", checkNotAuthenticated, (req, res) => {
   res.render("dashboard", { user: req.user.name });
 });
 
 app.get("/users/logout", (req, res) => {
-  req.logout();
-  res.flash("success_msg", { message: "You have logged out successfully" });
-  res.redirect("/users/login");
+  req.logout(() => {
+    res.locals.success_msg = "You have logged out successfully";
+    res.redirect("/users/login");
+  });
 });
 
 app.post("/users/register", async (req, res) => {
@@ -124,6 +129,20 @@ app.post(
     failureFlash: true,
   })
 );
+
+function checkAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) {
+    return res.redirect("/users/dashboard");
+  }
+  next();
+}
+
+function checkNotAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.redirect("/users/login");
+}
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
